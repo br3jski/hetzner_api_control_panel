@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hetzner Cloud Control Panel</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+    <script src="{{ url_for('static', filename='storage_boxes.js') }}"></script>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Hetzner Cloud Control Panel</h1>
+            <div id="token-status"></div>
+        </header>
+
+        <main>
+            <!-- Token Setup Section -->
+            <div id="token-setup" class="section" style="display: none;">
+                <h2>API Token Setup</h2>
+                <p>Enter your Hetzner Cloud API token to get started. It will be stored securely in your browser.</p>
+                <div class="form-group">
+                    <input type="password" id="api-token-input" placeholder="Enter your Hetzner Cloud API token">
+                    <button id="save-token-btn">Save Token</button>
+                </div>
+                <div id="token-error" class="error"></div>
+            </div>
+
+            <!-- Dashboard Section -->
+            <div id="dashboard" style="display: none;">
+                <div class="dashboard-layout">
+                    <!-- Sidebar Navigation -->
+                    <nav class="sidebar">
+                        <div class="nav-actions">
+                            <button id="refresh-btn" class="nav-action-btn">
+                                <span>↻</span> Refresh
+                            </button>
+                            <button id="logout-btn" class="nav-action-btn danger">
+                                <span>✕</span> Logout
+                            </button>
+                        </div>
+
+                        <ul class="nav-menu">
+                            <li class="nav-item active" data-view="overview">
+                                <span class="nav-icon">📊</span>
+                                <span class="nav-label">Overview</span>
+                            </li>
+                            <li class="nav-item" data-view="servers">
+                                <span class="nav-icon">🖥️</span>
+                                <span class="nav-label">Servers</span>
+                                <span class="nav-badge" id="servers-count">0</span>
+                            </li>
+                            <li class="nav-item" data-view="networking">
+                                <span class="nav-icon">🌐</span>
+                                <span class="nav-label">Networking</span>
+                            </li>
+                            <li class="nav-item" data-view="storage">
+                                <span class="nav-icon">💾</span>
+                                <span class="nav-label">Storage</span>
+                            </li>
+                            <li class="nav-item" data-view="storage-boxes">
+                                <span class="nav-icon">📦</span>
+                                <span class="nav-label">Storage Boxes</span>
+                                <span class="nav-badge" id="storage-boxes-count">0</span>
+                            </li>
+                            <li class="nav-item" data-view="security">
+                                <span class="nav-icon">🔒</span>
+                                <span class="nav-label">Security</span>
+                            </li>
+                        </ul>
+                    </nav>
+
+                    <!-- Main Content Area -->
+                    <div class="main-content">
+                        <!-- Overview View -->
+                        <div class="view-container active" id="view-overview">
+                            <div class="view-header">
+                                <h2>Infrastructure Overview</h2>
+                            </div>
+
+                            <!-- Metrics Cards -->
+                            <div class="metrics-grid">
+                                <div class="metric-card">
+                                    <div class="metric-icon">🖥️</div>
+                                    <div class="metric-content">
+                                        <div class="metric-label">Servers</div>
+                                        <div class="metric-value" id="metric-servers">0</div>
+                                        <div class="metric-detail">
+                                            <span id="metric-servers-running" class="status-running">0 running</span> •
+                                            <span id="metric-servers-stopped">0 stopped</span>
+                                        </div>
+                                        <div class="metric-detail" id="metric-servers-detail" style="margin-top: 5px;">0 cores, 0 GB RAM</div>
+                                    </div>
+                                </div>
+
+                                <div class="metric-card">
+                                    <div class="metric-icon">💾</div>
+                                    <div class="metric-content">
+                                        <div class="metric-label">Storage</div>
+                                        <div class="metric-value" id="metric-storage">0 GB</div>
+                                        <div class="metric-detail" id="metric-volumes-detail">0 volumes</div>
+                                    </div>
+                                </div>
+
+                                <div class="metric-card">
+                                    <div class="metric-icon">🌐</div>
+                                    <div class="metric-content">
+                                        <div class="metric-label">Networking</div>
+                                        <div class="metric-value" id="metric-ips">0</div>
+                                        <div class="metric-detail" id="metric-networks-detail">IPs & Networks</div>
+                                    </div>
+                                </div>
+
+                                <div class="metric-card">
+                                    <div class="metric-icon">💰</div>
+                                    <div class="metric-content">
+                                        <div class="metric-label">Est. Monthly Cost</div>
+                                        <div class="metric-value" id="metric-cost">€0.00</div>
+                                        <div class="metric-detail">Approximate</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Quick Actions -->
+                            <div class="quick-actions">
+                                <h3>Quick Actions</h3>
+                                <div class="quick-actions-grid">
+                                    <button class="quick-action-btn" onclick="app.showView('servers'); app.showCreateServerModal();">
+                                        <span class="qa-icon">➕</span>
+                                        <span class="qa-label">Create Server</span>
+                                    </button>
+                                    <button class="quick-action-btn" onclick="app.showView('networking'); app.showNetworkModal();">
+                                        <span class="qa-icon">🌐</span>
+                                        <span class="qa-label">New Network</span>
+                                    </button>
+                                    <button class="quick-action-btn" onclick="app.showView('storage'); app.showVolumeModal();">
+                                        <span class="qa-icon">💾</span>
+                                        <span class="qa-label">Add Volume</span>
+                                    </button>
+                                    <button class="quick-action-btn" onclick="app.showView('security'); app.showFirewallModal();">
+                                        <span class="qa-icon">🔒</span>
+                                        <span class="qa-label">New Firewall</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Recent Activity / Status -->
+                            <div class="recent-activity">
+                                <h3>Resource Summary</h3>
+                                <div id="resource-summary"></div>
+                            </div>
+                        </div>
+
+                        <!-- Servers View -->
+                        <div class="view-container" id="view-servers">
+                            <div class="view-header">
+                                <h2>Servers</h2>
+                                <button id="create-server-btn">Create Server</button>
+                            </div>
+                            <div id="servers-list"></div>
+                        </div>
+
+                        <!-- Networking View -->
+                        <div class="view-container" id="view-networking">
+                            <div class="view-header">
+                                <h2>Networking</h2>
+                            </div>
+
+                            <div class="resource-section">
+                                <div class="section-header">
+                                    <h3>Floating IPs</h3>
+                                    <button id="create-floating-ip-btn" class="btn-small">Create Floating IP</button>
+                                </div>
+                                <div id="floating-ips-list"></div>
+                            </div>
+
+                            <div class="resource-section">
+                                <div class="section-header">
+                                    <h3>Private Networks</h3>
+                                    <button id="create-network-btn" class="btn-small">Create Network</button>
+                                </div>
+                                <div id="networks-list"></div>
+                            </div>
+
+                            <div class="resource-section">
+                                <div class="section-header">
+                                    <h3>Load Balancers</h3>
+                                </div>
+                                <div id="load-balancers-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- Storage View -->
+                        <div class="view-container" id="view-storage">
+                            <div class="view-header">
+                                <h2>Storage</h2>
+                                <button id="create-volume-btn">Create Volume</button>
+                            </div>
+                            <div id="volumes-list"></div>
+                        </div>
+
+                        <!-- Security View -->
+                        <!-- Storage Boxes View -->
+                        <div class="view-container" id="view-storage-boxes">
+                            <div class="view-header">
+                                <h2>Storage Boxes</h2>
+                                <p style="color: #888; font-size: 0.9em; margin-top: 5px;">
+                                    Storage Boxes API (api.hetzner.com) - Requires separate token
+                                </p>
+                            </div>
+
+                            <!-- Token Setup for Storage Boxes -->
+                            <div id="storage-token-setup" style="display: none;">
+                                <div class="info-box" style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                                    <h3>Storage Boxes API Token Required</h3>
+                                    <p>Storage Boxes use a different API (api.hetzner.com) from the Cloud API. Please enter your Storage Boxes API token below.</p>
+                                    <div class="form-group" style="margin-top: 15px;">
+                                        <input type="password" id="storage-api-token-input" placeholder="Enter Storage Boxes API token" style="width: 100%; max-width: 500px;">
+                                        <button id="save-storage-token-btn" class="btn" style="margin-top: 10px;">Save Storage Token</button>
+                                    </div>
+                                    <div id="storage-token-error" class="error" style="display: none; margin-top: 10px;"></div>
+                                </div>
+                            </div>
+
+                            <!-- Storage Boxes List -->
+                            <div id="storage-boxes-content" style="display: none;">
+                                <div class="resource-section">
+                                    <div class="section-header">
+                                        <h3>Storage Boxes</h3>
+                                        <button id="refresh-storage-boxes-btn" class="btn-small">Refresh</button>
+                                    </div>
+                                    <div id="storage-success" class="success" style="display: none;"></div>
+                                    <div id="storage-error" class="error" style="display: none;"></div>
+                                    <div id="storage-boxes-list"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="view-container" id="view-security">
+                            <div class="view-header">
+                                <h2>Security</h2>
+                            </div>
+
+                            <div class="resource-section">
+                                <div class="section-header">
+                                    <h3>Firewalls</h3>
+                                    <button id="create-firewall-btn" class="btn-small">Create Firewall</button>
+                                </div>
+                                <div id="firewalls-list"></div>
+                            </div>
+
+                            <div class="resource-section">
+                                <div class="section-header">
+                                    <h3>SSH Keys</h3>
+                                    <button id="add-ssh-key-btn" class="btn-small">Add SSH Key</button>
+                                </div>
+                                <div id="ssh-keys-list"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Create Server Modal -->
+        <div id="create-server-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Create New Server</h2>
+                    <span class="close" onclick="app.closeCreateServerModal()">&times;</span>
+                </div>
+                <form id="create-server-form" onsubmit="app.handleCreateServer(event)">
+                    <div class="form-group">
+                        <label for="server-name">Server Name</label>
+                        <input type="text" id="server-name" placeholder="my-server" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="server-type-select">Server Type</label>
+                        <select id="server-type-select" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="image-select">Image</label>
+                        <select id="image-select" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="location-select">Location</label>
+                        <select id="location-select" required></select>
+                    </div>
+                    <div id="create-server-error" class="error"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary" onclick="app.closeCreateServerModal()">Cancel</button>
+                        <button type="submit" id="create-server-submit">Create Server</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Add SSH Key Modal -->
+        <div id="add-ssh-key-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Add SSH Key</h2>
+                    <span class="close" onclick="app.closeSSHKeyModal()">&times;</span>
+                </div>
+                <form id="add-ssh-key-form" onsubmit="app.handleAddSSHKey(event)">
+                    <div class="form-group">
+                        <label for="ssh-key-name">Key Name</label>
+                        <input type="text" id="ssh-key-name" placeholder="my-ssh-key" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="ssh-key-public">Public Key</label>
+                        <textarea id="ssh-key-public" rows="6" placeholder="ssh-rsa AAAAB3NzaC1yc..." required></textarea>
+                    </div>
+                    <div id="add-ssh-key-error" class="error"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary" onclick="app.closeSSHKeyModal()">Cancel</button>
+                        <button type="submit" id="add-ssh-key-submit">Add Key</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Create Floating IP Modal -->
+        <div id="create-floating-ip-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Create Floating IP</h2>
+                    <span class="close" onclick="app.closeFloatingIPModal()">&times;</span>
+                </div>
+                <form id="create-floating-ip-form" onsubmit="app.handleCreateFloatingIP(event)">
+                    <div class="form-group">
+                        <label for="floating-ip-name">Name (optional)</label>
+                        <input type="text" id="floating-ip-name" placeholder="my-floating-ip">
+                    </div>
+                    <div class="form-group">
+                        <label for="floating-ip-type">Type</label>
+                        <select id="floating-ip-type" required>
+                            <option value="ipv4">IPv4</option>
+                            <option value="ipv6">IPv6</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="floating-ip-location">Location</label>
+                        <select id="floating-ip-location" required></select>
+                    </div>
+                    <div id="create-floating-ip-error" class="error"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary" onclick="app.closeFloatingIPModal()">Cancel</button>
+                        <button type="submit" id="create-floating-ip-submit">Create IP</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Create Volume Modal -->
+        <div id="create-volume-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Create Volume</h2>
+                    <span class="close" onclick="app.closeVolumeModal()">&times;</span>
+                </div>
+                <form id="create-volume-form" onsubmit="app.handleCreateVolume(event)">
+                    <div class="form-group">
+                        <label for="volume-name">Name</label>
+                        <input type="text" id="volume-name" placeholder="my-volume" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="volume-size">Size (GB)</label>
+                        <input type="number" id="volume-size" min="10" max="10240" placeholder="10" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="volume-location">Location</label>
+                        <select id="volume-location" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="volume-format">Format</label>
+                        <select id="volume-format" required>
+                            <option value="ext4">ext4</option>
+                            <option value="xfs">xfs</option>
+                        </select>
+                    </div>
+                    <div id="create-volume-error" class="error"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary" onclick="app.closeVolumeModal()">Cancel</button>
+                        <button type="submit" id="create-volume-submit">Create Volume</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Create Firewall Modal -->
+        <div id="create-firewall-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Create Firewall</h2>
+                    <span class="close" onclick="app.closeFirewallModal()">&times;</span>
+                </div>
+                <form id="create-firewall-form" onsubmit="app.handleCreateFirewall(event)">
+                    <div class="form-group">
+                        <label for="firewall-name">Firewall Name</label>
+                        <input type="text" id="firewall-name" placeholder="my-firewall" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Firewall Rules</label>
+                        <div id="firewall-rules-container"></div>
+                        <button type="button" class="secondary" onclick="app.addFirewallRule()">Add Rule</button>
+                    </div>
+                    <div id="create-firewall-error" class="error"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary" onclick="app.closeFirewallModal()">Cancel</button>
+                        <button type="submit" id="create-firewall-submit">Create Firewall</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Create Network Modal -->
+        <div id="create-network-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Create Private Network</h2>
+                    <span class="close" onclick="app.closeNetworkModal()">&times;</span>
+                </div>
+                <form id="create-network-form" onsubmit="app.handleCreateNetwork(event)">
+                    <div class="form-group">
+                        <label for="network-name">Network Name</label>
+                        <input type="text" id="network-name" placeholder="my-network" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="network-ip-range">IP Range (CIDR)</label>
+                        <input type="text" id="network-ip-range" placeholder="10.0.0.0/16" value="10.0.0.0/16">
+                        <small>Default: 10.0.0.0/16. Valid private IP ranges only.</small>
+                    </div>
+                    <div id="create-network-error" class="error"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary" onclick="app.closeNetworkModal()">Cancel</button>
+                        <button type="submit" id="create-network-submit">Create Network</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Server Metrics Modal -->
+        <div id="server-metrics-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Server Metrics: <span id="metrics-server-name"></span></h2>
+                    <span class="close" onclick="app.closeMetricsModal()">&times;</span>
+                </div>
+                <div style="padding: 20px;">
+                    <div class="metrics-controls">
+                        <div class="form-group">
+                            <label for="metrics-type-select">Metric Type:</label>
+                            <select id="metrics-type-select" onchange="app.loadMetricsData()">
+                                <option value="cpu">CPU Usage</option>
+                                <option value="disk">Disk I/O</option>
+                                <option value="network">Network Traffic</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="metrics-range-select">Time Range:</label>
+                            <select id="metrics-range-select" onchange="app.loadMetricsData()">
+                                <option value="1h">Last Hour</option>
+                                <option value="24h">Last 24 Hours</option>
+                                <option value="7d">Last 7 Days</option>
+                                <option value="30d">Last 30 Days</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="metrics-display" style="margin-top: 30px;">
+                        <div class="loading">Loading metrics...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
