@@ -237,15 +237,41 @@ class App {
             ssh_keys: [],
             load_balancers: []
         };
+        this.themeKey = 'hetzner_theme';
         this.init();
     }
 
     init() {
+        this.loadTheme();
         this.setupEventListeners();
         this.checkToken();
     }
 
+    // Theme Management
+    loadTheme() {
+        const savedTheme = localStorage.getItem(this.themeKey);
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+        }
+        this.updateThemeIcon();
+    }
+
+    toggleTheme() {
+        const isDark = document.body.classList.toggle('dark-mode');
+        localStorage.setItem(this.themeKey, isDark ? 'dark' : 'light');
+        this.updateThemeIcon();
+    }
+
+    updateThemeIcon() {
+        const themeIcon = document.querySelector('.theme-icon');
+        const isDark = document.body.classList.contains('dark-mode');
+        themeIcon.textContent = isDark ? '☀️' : '🌙';
+    }
+
     setupEventListeners() {
+        // Theme toggle
+        document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
+
         document.getElementById('save-token-btn').addEventListener('click', () => this.handleSaveToken());
         document.getElementById('logout-btn').addEventListener('click', () => this.handleLogout());
         document.getElementById('refresh-btn').addEventListener('click', () => this.loadAll());
@@ -587,6 +613,9 @@ class App {
                     <button class="action-reboot" data-action="reboot" ${server.status !== 'running' ? 'disabled' : ''}>
                         Reboot
                     </button>
+                    <button class="action-edit" data-action="edit">
+                        Edit
+                    </button>
                     <button class="action-metrics" data-action="metrics">
                         View Metrics
                     </button>
@@ -613,6 +642,11 @@ class App {
     async handleServerAction(serverId, action, button) {
         if (action === 'delete') {
             await this.handleDeleteServer(serverId);
+            return;
+        }
+
+        if (action === 'edit') {
+            this.showEditServerModal(serverId);
             return;
         }
 
@@ -1770,6 +1804,285 @@ class App {
         if (this.metricsChart) {
             this.metricsChart.destroy();
             this.metricsChart = null;
+        }
+    }
+
+    // Edit Server Modal Methods
+    async showEditServerModal(serverId) {
+        this.currentEditServerId = serverId;
+        const server = this.metrics.servers.find(s => s.id === serverId);
+        if (server) {
+            document.getElementById('edit-server-name').textContent = server.name;
+            document.getElementById('edit-server-id').value = serverId;
+        }
+
+        // Load dropdown options
+        await this.loadEditServerOptions(server);
+
+        document.getElementById('edit-server-modal').style.display = 'flex';
+    }
+
+    closeEditServerModal() {
+        document.getElementById('edit-server-modal').style.display = 'none';
+        this.currentEditServerId = null;
+    }
+
+    async loadEditServerOptions(server) {
+        // Load available networks
+        const networkSelect = document.getElementById('attach-network-select');
+        networkSelect.innerHTML = '<option value="">Select a network...</option>';
+        this.metrics.networks.forEach(net => {
+            const isAttached = server.private_net && server.private_net.some(pn => pn.network === net.id);
+            if (!isAttached) {
+                networkSelect.innerHTML += `<option value="${net.id}">${net.name} (${net.ip_range})</option>`;
+            }
+        });
+
+        // Display attached networks
+        const networksListDiv = document.getElementById('server-networks-list');
+        if (server.private_net && server.private_net.length > 0) {
+            networksListDiv.innerHTML = server.private_net.map(pn => {
+                const network = this.metrics.networks.find(n => n.id === pn.network);
+                return `<div class="resource-item">
+                    <span>${network ? network.name : 'Network ' + pn.network}: ${pn.ip}</span>
+                    <button class="btn-small" onclick="app.detachNetworkFromServer(${pn.network})">Detach</button>
+                </div>`;
+            }).join('');
+        } else {
+            networksListDiv.innerHTML = '<p style="color: var(--text-secondary);">No networks attached</p>';
+        }
+
+        // Load available floating IPs
+        const floatingIPSelect = document.getElementById('assign-floating-ip-select');
+        floatingIPSelect.innerHTML = '<option value="">Select a floating IP...</option>';
+        this.metrics.floating_ips.forEach(fip => {
+            if (!fip.server || fip.server === server.id) {
+                const text = fip.server === server.id ? `${fip.ip} (already assigned)` : `${fip.ip}`;
+                floatingIPSelect.innerHTML += `<option value="${fip.id}" ${fip.server === server.id ? 'disabled' : ''}>${text}</option>`;
+            }
+        });
+
+        // Display assigned floating IPs
+        const floatingIPsListDiv = document.getElementById('server-floating-ips-list');
+        const assignedFIPs = this.metrics.floating_ips.filter(fip => fip.server === server.id);
+        if (assignedFIPs.length > 0) {
+            floatingIPsListDiv.innerHTML = assignedFIPs.map(fip => `
+                <div class="resource-item">
+                    <span>${fip.ip} (${fip.type})</span>
+                    <button class="btn-small" onclick="app.unassignFloatingIPFromServer(${fip.id})">Unassign</button>
+                </div>
+            `).join('');
+        } else {
+            floatingIPsListDiv.innerHTML = '<p style="color: var(--text-secondary);">No floating IPs assigned</p>';
+        }
+
+        // Load available volumes
+        const volumeSelect = document.getElementById('attach-volume-select');
+        volumeSelect.innerHTML = '<option value="">Select a volume...</option>';
+        this.metrics.volumes.forEach(vol => {
+            if (!vol.server) {
+                volumeSelect.innerHTML += `<option value="${vol.id}">${vol.name} (${vol.size}GB)</option>`;
+            }
+        });
+
+        // Display attached volumes
+        const volumesListDiv = document.getElementById('server-volumes-list');
+        const attachedVolumes = this.metrics.volumes.filter(vol => vol.server === server.id);
+        if (attachedVolumes.length > 0) {
+            volumesListDiv.innerHTML = attachedVolumes.map(vol => `
+                <div class="resource-item">
+                    <span>${vol.name} (${vol.size}GB)</span>
+                    <button class="btn-small" onclick="app.detachVolumeFromServer(${vol.id})">Detach</button>
+                </div>
+            `).join('');
+        } else {
+            volumesListDiv.innerHTML = '<p style="color: var(--text-secondary);">No volumes attached</p>';
+        }
+
+        // Load server types
+        try {
+            const data = await this.api.getServerTypes();
+            const serverTypeSelect = document.getElementById('change-server-type-select');
+            serverTypeSelect.innerHTML = '<option value="">Select a server type...</option>';
+            data.server_types.forEach(st => {
+                const selected = st.name === server.server_type ? 'selected' : '';
+                serverTypeSelect.innerHTML += `<option value="${st.name}" ${selected}>${st.name} - ${st.cores} cores, ${st.memory}GB RAM (€${st.prices.monthly.toFixed(2)}/month)</option>`;
+            });
+        } catch (error) {
+            console.error('Error loading server types:', error);
+        }
+    }
+
+    async attachNetworkToServer() {
+        const serverId = this.currentEditServerId;
+        const networkId = parseInt(document.getElementById('attach-network-select').value);
+
+        if (!networkId) {
+            alert('Please select a network');
+            return;
+        }
+
+        try {
+            await this.api.request(`/api/servers/${serverId}/attach-network`, {
+                method: 'POST',
+                body: JSON.stringify({ network_id: networkId })
+            });
+            alert('Network attached successfully');
+
+            // Reload all data to refresh the UI
+            await this.loadAll();
+
+            // Get updated server data and reload edit options
+            const server = this.metrics.servers.find(s => s.id === serverId);
+            await this.loadEditServerOptions(server);
+        } catch (error) {
+            alert(`Error attaching network: ${error.message}`);
+        }
+    }
+
+    async detachNetworkFromServer(networkId) {
+        const serverId = this.currentEditServerId;
+
+        if (!confirm('Are you sure you want to detach this network?')) {
+            return;
+        }
+
+        try {
+            await this.api.request(`/api/servers/${serverId}/detach-network`, {
+                method: 'POST',
+                body: JSON.stringify({ network_id: networkId })
+            });
+            alert('Network detached successfully');
+            await this.loadServers();
+            const server = this.metrics.servers.find(s => s.id === serverId);
+            await this.loadEditServerOptions(server);
+        } catch (error) {
+            alert(`Error detaching network: ${error.message}`);
+        }
+    }
+
+    async assignFloatingIPToServer() {
+        const serverId = this.currentEditServerId;
+        const floatingIpId = parseInt(document.getElementById('assign-floating-ip-select').value);
+
+        if (!floatingIpId) {
+            alert('Please select a floating IP');
+            return;
+        }
+
+        try {
+            await this.api.request(`/api/servers/${serverId}/assign-floating-ip`, {
+                method: 'POST',
+                body: JSON.stringify({ floating_ip_id: floatingIpId })
+            });
+            alert('Floating IP assigned successfully');
+            await this.loadFloatingIPs();
+            await this.loadServers();
+            const server = this.metrics.servers.find(s => s.id === serverId);
+            await this.loadEditServerOptions(server);
+        } catch (error) {
+            alert(`Error assigning floating IP: ${error.message}`);
+        }
+    }
+
+    async unassignFloatingIPFromServer(floatingIpId) {
+        const serverId = this.currentEditServerId;
+
+        if (!confirm('Are you sure you want to unassign this floating IP?')) {
+            return;
+        }
+
+        try {
+            await this.api.request(`/api/servers/${serverId}/unassign-floating-ip`, {
+                method: 'POST',
+                body: JSON.stringify({ floating_ip_id: floatingIpId })
+            });
+            alert('Floating IP unassigned successfully');
+            await this.loadFloatingIPs();
+            await this.loadServers();
+            const server = this.metrics.servers.find(s => s.id === serverId);
+            await this.loadEditServerOptions(server);
+        } catch (error) {
+            alert(`Error unassigning floating IP: ${error.message}`);
+        }
+    }
+
+    async attachVolumeToServer() {
+        const serverId = this.currentEditServerId;
+        const volumeId = parseInt(document.getElementById('attach-volume-select').value);
+
+        if (!volumeId) {
+            alert('Please select a volume');
+            return;
+        }
+
+        try {
+            await this.api.request(`/api/servers/${serverId}/attach-volume`, {
+                method: 'POST',
+                body: JSON.stringify({ volume_id: volumeId, automount: true })
+            });
+            alert('Volume attached successfully');
+            await this.loadVolumes();
+            await this.loadServers();
+            const server = this.metrics.servers.find(s => s.id === serverId);
+            await this.loadEditServerOptions(server);
+        } catch (error) {
+            alert(`Error attaching volume: ${error.message}`);
+        }
+    }
+
+    async detachVolumeFromServer(volumeId) {
+        const serverId = this.currentEditServerId;
+
+        if (!confirm('Are you sure you want to detach this volume?')) {
+            return;
+        }
+
+        try {
+            await this.api.request(`/api/servers/${serverId}/detach-volume`, {
+                method: 'POST',
+                body: JSON.stringify({ volume_id: volumeId })
+            });
+            alert('Volume detached successfully');
+            await this.loadVolumes();
+            await this.loadServers();
+            const server = this.metrics.servers.find(s => s.id === serverId);
+            await this.loadEditServerOptions(server);
+        } catch (error) {
+            alert(`Error detaching volume: ${error.message}`);
+        }
+    }
+
+    async changeServerType() {
+        const serverId = this.currentEditServerId;
+        const serverType = document.getElementById('change-server-type-select').value;
+        const upgradeDisk = document.getElementById('upgrade-disk-checkbox').checked;
+
+        if (!serverType) {
+            alert('Please select a server type');
+            return;
+        }
+
+        const server = this.metrics.servers.find(s => s.id === serverId);
+        if (server.server_type === serverType) {
+            alert('Server is already using this type');
+            return;
+        }
+
+        if (!confirm(`Change server type to ${serverType}? ${upgradeDisk ? 'This will upgrade the disk (cannot be reverted).' : 'Disk size will remain the same.'}`)) {
+            return;
+        }
+
+        try {
+            await this.api.request(`/api/servers/${serverId}/change-type`, {
+                method: 'POST',
+                body: JSON.stringify({ server_type: serverType, upgrade_disk: upgradeDisk })
+            });
+            alert('Server type change initiated. This may take several minutes.');
+            this.closeEditServerModal();
+            await this.loadServers();
+        } catch (error) {
+            alert(`Error changing server type: ${error.message}`);
         }
     }
 

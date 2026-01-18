@@ -15,7 +15,12 @@
     <div id="app">
         <header>
             <h1>Hetzner Cloud Control Panel</h1>
-            <div id="token-status"></div>
+            <div class="header-controls">
+                <button id="theme-toggle" class="theme-toggle" title="Toggle dark mode">
+                    <span class="theme-icon"></span>
+                </button>
+                <div id="token-status"></div>
+            </div>
         </header>
 
         <main>
@@ -474,6 +479,69 @@
                     <div id="metrics-display" style="margin-top: 30px;">
                         <div class="loading">Loading metrics...</div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="edit-server-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Edit Server: <span id="edit-server-name"></span></h2>
+                    <span class="close" onclick="app.closeEditServerModal()">&times;</span>
+                </div>
+                <div style="padding: 20px;">
+                    <input type="hidden" id="edit-server-id">
+
+                    <h3 style="margin-bottom: 15px;">Manage Networks</h3>
+                    <div id="server-networks-list" style="margin-bottom: 20px;"></div>
+                    <div class="form-group">
+                        <label>Attach to Network:</label>
+                        <select id="attach-network-select">
+                            <option value="">Select a network...</option>
+                        </select>
+                        <button onclick="app.attachNetworkToServer()" class="btn-small">Attach Network</button>
+                    </div>
+
+                    <hr style="margin: 30px 0;">
+
+                    <h3 style="margin-bottom: 15px;">Manage Floating IPs</h3>
+                    <div id="server-floating-ips-list" style="margin-bottom: 20px;"></div>
+                    <div class="form-group">
+                        <label>Assign Floating IP:</label>
+                        <select id="assign-floating-ip-select">
+                            <option value="">Select a floating IP...</option>
+                        </select>
+                        <button onclick="app.assignFloatingIPToServer()" class="btn-small">Assign IP</button>
+                    </div>
+
+                    <hr style="margin: 30px 0;">
+
+                    <h3 style="margin-bottom: 15px;">Manage Volumes</h3>
+                    <div id="server-volumes-list" style="margin-bottom: 20px;"></div>
+                    <div class="form-group">
+                        <label>Attach Volume:</label>
+                        <select id="attach-volume-select">
+                            <option value="">Select a volume...</option>
+                        </select>
+                        <button onclick="app.attachVolumeToServer()" class="btn-small">Attach Volume</button>
+                    </div>
+
+                    <hr style="margin: 30px 0;">
+
+                    <h3 style="margin-bottom: 15px;">Change Server Type (Resize)</h3>
+                    <div class="form-group">
+                        <label>New Server Type:</label>
+                        <select id="change-server-type-select">
+                            <option value="">Select a server type...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="upgrade-disk-checkbox">
+                            Upgrade disk (cannot be reverted)
+                        </label>
+                    </div>
+                    <button onclick="app.changeServerType()" class="btn-small">Change Type</button>
                 </div>
             </div>
         </div>

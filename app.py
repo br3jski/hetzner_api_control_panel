@@ -14,6 +14,7 @@ from functools import wraps
 import os
 from dotenv import load_dotenv
 from storage_boxes_client import StorageBoxesClient
+from robot_client import RobotClient
 
 load_dotenv()
 
@@ -63,6 +64,27 @@ def require_storage_token(f):
     return decorated_function
 
 
+def require_robot_auth(f):
+    """Decorator to validate Hetzner Robot API credentials from request headers"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        username = request.headers.get('X-Robot-User')
+        password = request.headers.get('X-Robot-Pass')
+
+        if not username or not password:
+            return jsonify({'error': 'No Robot API credentials provided'}), 401
+
+        try:
+            client = RobotClient(username=username, password=password)
+            # Test credentials by making a simple API call
+            client.list_servers()
+            return f(client, *args, **kwargs)
+        except Exception as e:
+            return jsonify({'error': f'Invalid credentials or API error: {str(e)}'}), 401
+
+    return decorated_function
+
+
 @app.route('/')
 def index():
     """Serve the main frontend page"""
@@ -98,6 +120,17 @@ def get_servers(client):
             except (AttributeError, KeyError, IndexError, ValueError):
                 monthly_price = 0
 
+            # Get private network information
+            private_net = []
+            if server.private_net:
+                for pn in server.private_net:
+                    private_net.append({
+                        'network': pn.network.id,
+                        'ip': pn.ip,
+                        'alias_ips': pn.alias_ips if hasattr(pn, 'alias_ips') else [],
+                        'mac_address': pn.mac_address if hasattr(pn, 'mac_address') else None,
+                    })
+
             servers_data.append({
                 'id': server.id,
                 'name': server.name,
@@ -117,6 +150,7 @@ def get_servers(client):
                     'ipv4': server.public_net.ipv4.ip if server.public_net.ipv4 else None,
                     'ipv6': server.public_net.ipv6.ip if server.public_net.ipv6 else None,
                 },
+                'private_net': private_net,
                 'created': server.created.isoformat(),
                 'image': server.image.name if server.image else None,
             })
@@ -377,6 +411,222 @@ def delete_server(client, server_id):
         return jsonify({'error': str(e)}), 500
 
 
+# Server Network Actions
+@app.route('/api/servers/<int:server_id>/attach-network', methods=['POST'])
+@require_token
+def attach_server_to_network(client, server_id):
+    """Attach a server to a network"""
+    try:
+        server = client.servers.get_by_id(server_id)
+        if not server:
+            return jsonify({'error': 'Server not found'}), 404
+
+        data = request.json
+        network_id = data.get('network_id')
+        ip = data.get('ip')  # Optional - if not provided, Hetzner will auto-assign
+
+        if not network_id:
+            return jsonify({'error': 'network_id is required'}), 400
+
+        network = client.networks.get_by_id(network_id)
+        if not network:
+            return jsonify({'error': 'Network not found'}), 404
+
+        # Attach server to network
+        action = client.servers.attach_to_network(server, network, ip=ip)
+
+        return jsonify({
+            'success': True,
+            'message': 'Server attached to network',
+            'action_id': action.id if action else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/servers/<int:server_id>/detach-network', methods=['POST'])
+@require_token
+def detach_server_from_network(client, server_id):
+    """Detach a server from a network"""
+    try:
+        server = client.servers.get_by_id(server_id)
+        if not server:
+            return jsonify({'error': 'Server not found'}), 404
+
+        data = request.json
+        network_id = data.get('network_id')
+
+        if not network_id:
+            return jsonify({'error': 'network_id is required'}), 400
+
+        network = client.networks.get_by_id(network_id)
+        if not network:
+            return jsonify({'error': 'Network not found'}), 404
+
+        # Detach server from network
+        action = client.servers.detach_from_network(server, network)
+
+        return jsonify({
+            'success': True,
+            'message': 'Server detached from network',
+            'action_id': action.id if action else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Server Floating IP Actions
+@app.route('/api/servers/<int:server_id>/assign-floating-ip', methods=['POST'])
+@require_token
+def assign_floating_ip_to_server(client, server_id):
+    """Assign a floating IP to a server"""
+    try:
+        server = client.servers.get_by_id(server_id)
+        if not server:
+            return jsonify({'error': 'Server not found'}), 404
+
+        data = request.json
+        floating_ip_id = data.get('floating_ip_id')
+
+        if not floating_ip_id:
+            return jsonify({'error': 'floating_ip_id is required'}), 400
+
+        floating_ip = client.floating_ips.get_by_id(floating_ip_id)
+        if not floating_ip:
+            return jsonify({'error': 'Floating IP not found'}), 404
+
+        # Assign floating IP to server
+        action = client.floating_ips.assign(floating_ip, server)
+
+        return jsonify({
+            'success': True,
+            'message': 'Floating IP assigned to server',
+            'action_id': action.id if action else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/servers/<int:server_id>/unassign-floating-ip', methods=['POST'])
+@require_token
+def unassign_floating_ip_from_server(client, server_id):
+    """Unassign a floating IP from a server"""
+    try:
+        data = request.json
+        floating_ip_id = data.get('floating_ip_id')
+
+        if not floating_ip_id:
+            return jsonify({'error': 'floating_ip_id is required'}), 400
+
+        floating_ip = client.floating_ips.get_by_id(floating_ip_id)
+        if not floating_ip:
+            return jsonify({'error': 'Floating IP not found'}), 404
+
+        # Unassign floating IP
+        action = client.floating_ips.unassign(floating_ip)
+
+        return jsonify({
+            'success': True,
+            'message': 'Floating IP unassigned from server',
+            'action_id': action.id if action else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Server Resize/Change Type
+@app.route('/api/servers/<int:server_id>/change-type', methods=['POST'])
+@require_token
+def change_server_type(client, server_id):
+    """Change server type (resize)"""
+    try:
+        server = client.servers.get_by_id(server_id)
+        if not server:
+            return jsonify({'error': 'Server not found'}), 404
+
+        data = request.json
+        server_type_name = data.get('server_type')
+        upgrade_disk = data.get('upgrade_disk', False)
+
+        if not server_type_name:
+            return jsonify({'error': 'server_type is required'}), 400
+
+        server_type = client.server_types.get_by_name(server_type_name)
+        if not server_type:
+            return jsonify({'error': 'Server type not found'}), 404
+
+        # Change server type
+        action = client.servers.change_type(server, server_type, upgrade_disk=upgrade_disk)
+
+        return jsonify({
+            'success': True,
+            'message': 'Server type change initiated',
+            'action_id': action.action.id if hasattr(action, 'action') else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Server Volume Actions
+@app.route('/api/servers/<int:server_id>/attach-volume', methods=['POST'])
+@require_token
+def attach_volume_to_server(client, server_id):
+    """Attach a volume to a server"""
+    try:
+        server = client.servers.get_by_id(server_id)
+        if not server:
+            return jsonify({'error': 'Server not found'}), 404
+
+        data = request.json
+        volume_id = data.get('volume_id')
+        automount = data.get('automount', False)
+
+        if not volume_id:
+            return jsonify({'error': 'volume_id is required'}), 400
+
+        volume = client.volumes.get_by_id(volume_id)
+        if not volume:
+            return jsonify({'error': 'Volume not found'}), 404
+
+        # Attach volume to server
+        action = client.volumes.attach(volume, server, automount=automount)
+
+        return jsonify({
+            'success': True,
+            'message': 'Volume attached to server',
+            'action_id': action.id if action else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/servers/<int:server_id>/detach-volume', methods=['POST'])
+@require_token
+def detach_volume_from_server(client, server_id):
+    """Detach a volume from a server"""
+    try:
+        data = request.json
+        volume_id = data.get('volume_id')
+
+        if not volume_id:
+            return jsonify({'error': 'volume_id is required'}), 400
+
+        volume = client.volumes.get_by_id(volume_id)
+        if not volume:
+            return jsonify({'error': 'Volume not found'}), 404
+
+        # Detach volume
+        action = client.volumes.detach(volume)
+
+        return jsonify({
+            'success': True,
+            'message': 'Volume detached from server',
+            'action_id': action.id if action else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/server-types', methods=['GET'])
 @require_token
 def get_server_types(client):
@@ -386,6 +636,22 @@ def get_server_types(client):
         types_data = []
 
         for st in server_types:
+            # Handle prices defensively (can be dict or object)
+            hourly_price = 0
+            monthly_price = 0
+            try:
+                if st.prices:
+                    price_obj = st.prices[0]
+                    if hasattr(price_obj, 'price_hourly'):
+                        hourly_price = float(price_obj.price_hourly.gross)
+                        monthly_price = float(price_obj.price_monthly.gross)
+                    elif isinstance(price_obj, dict):
+                        hourly_price = float(price_obj.get('price_hourly', {}).get('gross', 0))
+                        monthly_price = float(price_obj.get('price_monthly', {}).get('gross', 0))
+            except (AttributeError, KeyError, IndexError, ValueError):
+                hourly_price = 0
+                monthly_price = 0
+
             types_data.append({
                 'id': st.id,
                 'name': st.name,
@@ -394,8 +660,8 @@ def get_server_types(client):
                 'memory': st.memory,
                 'disk': st.disk,
                 'prices': {
-                    'hourly': float(st.prices[0].price_hourly.gross) if st.prices else 0,
-                    'monthly': float(st.prices[0].price_monthly.gross) if st.prices else 0,
+                    'hourly': hourly_price,
+                    'monthly': monthly_price,
                 },
             })
 
@@ -1475,6 +1741,259 @@ def update_subaccount_access_settings(client, box_id, subaccount_id):
             'action': response.get('action'),
             'message': 'Subaccount access settings updated'
         })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ===== Robot API Endpoints (robot-ws.your-server.de) =====
+
+@app.route('/api/robot/test-auth', methods=['POST'])
+@require_robot_auth
+def test_robot_auth(client):
+    """Test if the provided Robot API credentials are valid"""
+    return jsonify({'valid': True, 'message': 'Robot credentials are valid'})
+
+
+@app.route('/api/robot/servers', methods=['GET'])
+@require_robot_auth
+def get_robot_servers(client):
+    """Get all dedicated servers"""
+    try:
+        servers = client.list_servers()
+        return jsonify({'servers': servers})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/servers/<int:server_number>', methods=['GET'])
+@require_robot_auth
+def get_robot_server(client, server_number):
+    """Get details of a specific server"""
+    try:
+        server = client.get_server(server_number)
+        return jsonify(server)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/servers/<int:server_number>/name', methods=['POST'])
+@require_robot_auth
+def update_robot_server_name(client, server_number):
+    """Update server name"""
+    try:
+        data = request.json
+        server_name = data.get('server_name')
+
+        if not server_name:
+            return jsonify({'error': 'server_name is required'}), 400
+
+        server = client.update_server_name(server_number, server_name)
+        return jsonify({'success': True, 'server': server})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/servers/<int:server_number>/reset', methods=['GET'])
+@require_robot_auth
+def get_robot_reset_options(client, server_number):
+    """Get reset options for a server"""
+    try:
+        reset = client.get_reset_options(server_number)
+        return jsonify(reset)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/servers/<int:server_number>/reset', methods=['POST'])
+@require_robot_auth
+def execute_robot_reset(client, server_number):
+    """Execute reset on server"""
+    try:
+        data = request.json
+        reset_type = data.get('type')
+
+        if not reset_type:
+            return jsonify({'error': 'type is required'}), 400
+
+        reset = client.execute_reset(server_number, reset_type)
+        return jsonify({'success': True, 'reset': reset})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/servers/<int:server_number>/rescue', methods=['GET'])
+@require_robot_auth
+def get_robot_rescue(client, server_number):
+    """Get rescue system configuration"""
+    try:
+        rescue = client.get_rescue_config(server_number)
+        return jsonify(rescue)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/servers/<int:server_number>/rescue', methods=['POST'])
+@require_robot_auth
+def activate_robot_rescue(client, server_number):
+    """Activate rescue system"""
+    try:
+        data = request.json
+        os = data.get('os', 'linux')
+        authorized_keys = data.get('authorized_keys')
+        keyboard = data.get('keyboard', 'us')
+
+        rescue = client.activate_rescue(server_number, os, authorized_keys, keyboard)
+        return jsonify({'success': True, 'rescue': rescue})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/servers/<int:server_number>/rescue', methods=['DELETE'])
+@require_robot_auth
+def deactivate_robot_rescue(client, server_number):
+    """Deactivate rescue system"""
+    try:
+        client.deactivate_rescue(server_number)
+        return jsonify({'success': True, 'message': 'Rescue system deactivated'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/servers/<int:server_number>/wol', methods=['POST'])
+@require_robot_auth
+def send_robot_wol(client, server_number):
+    """Send Wake on LAN packet"""
+    try:
+        wol = client.send_wol(server_number)
+        return jsonify({'success': True, 'wol': wol})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/ips', methods=['GET'])
+@require_robot_auth
+def get_robot_ips(client):
+    """Get all IP addresses"""
+    try:
+        server_ip = request.args.get('server_ip')
+        ips = client.list_ips(server_ip)
+        return jsonify({'ips': ips})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/ips/<path:ip>', methods=['GET'])
+@require_robot_auth
+def get_robot_ip(client, ip):
+    """Get IP address details"""
+    try:
+        ip_data = client.get_ip(ip)
+        return jsonify(ip_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/subnets', methods=['GET'])
+@require_robot_auth
+def get_robot_subnets(client):
+    """Get all subnets"""
+    try:
+        server_ip = request.args.get('server_ip')
+        subnets = client.list_subnets(server_ip)
+        return jsonify({'subnets': subnets})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/failover', methods=['GET'])
+@require_robot_auth
+def get_robot_failover_ips(client):
+    """Get all failover IPs"""
+    try:
+        failovers = client.list_failover()
+        return jsonify({'failovers': failovers})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/failover/<path:failover_ip>', methods=['GET'])
+@require_robot_auth
+def get_robot_failover(client, failover_ip):
+    """Get failover IP details"""
+    try:
+        failover = client.get_failover(failover_ip)
+        return jsonify(failover)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/failover/<path:failover_ip>', methods=['POST'])
+@require_robot_auth
+def switch_robot_failover(client, failover_ip):
+    """Switch failover IP to another server"""
+    try:
+        data = request.json
+        active_server_ip = data.get('active_server_ip')
+
+        if not active_server_ip:
+            return jsonify({'error': 'active_server_ip is required'}), 400
+
+        failover = client.switch_failover(failover_ip, active_server_ip)
+        return jsonify({'success': True, 'failover': failover})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/rdns/<path:ip>', methods=['GET'])
+@require_robot_auth
+def get_robot_rdns(client, ip):
+    """Get reverse DNS for IP"""
+    try:
+        rdns = client.get_rdns(ip)
+        return jsonify(rdns)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/rdns/<path:ip>', methods=['PUT'])
+@require_robot_auth
+def set_robot_rdns(client, ip):
+    """Set reverse DNS"""
+    try:
+        data = request.json
+        ptr = data.get('ptr')
+
+        if not ptr:
+            return jsonify({'error': 'ptr is required'}), 400
+
+        rdns = client.set_rdns(ip, ptr)
+        return jsonify({'success': True, 'rdns': rdns})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/rdns/<path:ip>', methods=['DELETE'])
+@require_robot_auth
+def delete_robot_rdns(client, ip):
+    """Delete reverse DNS"""
+    try:
+        rdns = client.delete_rdns(ip)
+        return jsonify({'success': True, 'rdns': rdns})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/robot/servers/<int:server_number>/traffic', methods=['GET'])
+@require_robot_auth
+def get_robot_traffic(client, server_number):
+    """Get traffic statistics"""
+    try:
+        traffic_type = request.args.get('type', 'day')
+        from_date = request.args.get('from')
+        to_date = request.args.get('to')
+
+        traffic = client.get_traffic(server_number, traffic_type, from_date, to_date)
+        return jsonify(traffic)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

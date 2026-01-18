@@ -81,15 +81,44 @@ Web-based control panel for Hetzner Cloud using their API.
   - Manage subaccount access settings independently
   - Reset subaccount passwords
 
+### Robot API (robot-ws.your-server.de)
+- **Dedicated Servers** (bare metal) management - separate from cloud
+- **Server Operations**:
+  - List all dedicated servers with details
+  - View server specifications and status
+  - Update server names
+  - View paid until dates and cancellation status
+- **Reset & Rescue**:
+  - Hardware and software reset options
+  - Activate/deactivate rescue system
+  - Wake on LAN support
+  - Power control (power button operations)
+- **IP Management**:
+  - List and manage single IP addresses
+  - Configure traffic warnings and limits
+  - Separate MAC address management
+  - Subnet management
+- **Failover IPs**:
+  - View failover IP configurations
+  - Switch failover routing between servers
+  - Manage failover IP addresses
+- **Reverse DNS**:
+  - View, set, and delete PTR records
+  - Manage rDNS for IPs and subnets
+- **Traffic Statistics**:
+  - View daily, monthly, and yearly traffic data
+  - Traffic monitoring and analysis
+
 ## Technology Stack
 
 - **Backend**: Python Flask with gunicorn
 - **API Client**:
   - Official `hcloud` library for Cloud API (api.hetzner.cloud)
   - Custom wrapper using `requests` for Storage Boxes API (api.hetzner.com)
+  - Custom wrapper using `requests` for Robot API (robot-ws.your-server.de)
 - **Frontend**: Vanilla JavaScript (no frameworks)
 - **Styling**: Custom CSS with gradient design
-- **Security**: Client-side token storage with backend validation
+- **Security**: Client-side credentials storage with backend validation
 
 ## Setup
 
@@ -107,24 +136,33 @@ python app.py
 
 4. Open your browser and navigate to `http://localhost:5000`
 
-5. Enter your API tokens to get started:
-   - **Cloud API Token** - For servers, volumes, networking, etc. (api.hetzner.cloud)
-   - **Storage Boxes Token** (Optional) - For Storage Boxes management (api.hetzner.com)
+5. Enter your API credentials to get started:
+   - **Cloud API Token** - For cloud servers, volumes, networking (api.hetzner.cloud)
+   - **Storage Boxes Token** (Optional) - For Storage Boxes (api.hetzner.com)
+   - **Robot API Credentials** (Optional) - For dedicated servers (robot-ws.your-server.de)
 
-## API Tokens
+## API Credentials
 
-This application supports **two different Hetzner APIs**:
+This application supports **three different Hetzner APIs**:
 
 ### 1. Cloud API (api.hetzner.cloud)
-- Manages: Servers, Volumes, Networks, Floating IPs, Load Balancers, Firewalls, SSH Keys
-- Get token from: [Hetzner Cloud Console](https://console.hetzner.cloud/) → Security → API Tokens
+- **Type**: Cloud infrastructure (VPS, volumes, networks, etc.)
+- **Auth**: API Token
+- **Get token from**: [Hetzner Cloud Console](https://console.hetzner.cloud/) → Security → API Tokens
 
 ### 2. Storage Boxes API (api.hetzner.com)
-- Manages: Storage Boxes and Subaccounts
-- Get token from: [Hetzner Cloud Console](https://console.hetzner.cloud/) → Security → API Tokens
+- **Type**: Storage Boxes and Subaccounts
+- **Auth**: API Token (separate from Cloud API)
+- **Get token from**: [Hetzner Cloud Console](https://console.hetzner.cloud/) → Security → API Tokens
 - **Note**: This is a separate API requiring a different token
 
-Both tokens are optional and independent - you can use only one or both depending on your needs.
+### 3. Robot API (robot-ws.your-server.de)
+- **Type**: Dedicated (bare metal) servers
+- **Auth**: Username + Password (HTTP Basic Auth)
+- **Create credentials**: [Robot Console](https://robot.hetzner.com/) → Settings → Web service and app settings
+- **Note**: This API is for dedicated servers, NOT cloud servers
+
+All credentials are optional and independent - you can use one, two, or all three depending on your needs.
 
 ## Security
 
